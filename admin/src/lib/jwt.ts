@@ -33,3 +33,8 @@ export function verifyToken(token: string) {
     return jwt.verify(token, JWT_SECRET) as {id: string; jti: string; iat?: number; exp?: number};
 }
 
+
+
+export function signToken(userId: string) {
+  return jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: REFRESH_EXPIRES_IN});
+}
