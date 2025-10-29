@@ -1,6 +1,6 @@
 const winston = require("winston");
 
-const logger = winston.createLogger({
+export const logger = winston.createLogger({
   level: process.env.NODE_ENV === "production" ? "info" : "debug",
   format: winston.format.combine(
     winston.format.timestamp(),
@@ -8,7 +8,7 @@ const logger = winston.createLogger({
     winston.format.splat(),
     winston.format.json()
   ),
-  defaultMeta: { service: "identity-service" },
+  defaultMeta: { service: "service" },
   transports: [
     new winston.transports.Console({
       format: winston.format.combine(
@@ -21,4 +21,4 @@ const logger = winston.createLogger({
   ],
 });
 
-module.exports = logger;
+// module.exports = logger;
