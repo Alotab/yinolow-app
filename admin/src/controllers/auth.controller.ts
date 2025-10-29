@@ -6,7 +6,9 @@ import { User } from "../models/User";
 import { signAccessToken, signRefreshToken, verifyToken, signToken } from "../lib/jwt";
 import { storeRefreshToken, revokeRefreshToken, isRefreshTokenValid, blacklistAccessToken} from "./auth.tokens";
 import { redis } from "../lib/redis";
-const logger = require("../utils/logger");
+import { logger } from "../utils/logger";
+
+
 
 dotenv.config();
 
