@@ -1,6 +1,8 @@
 // src/controllers/product.controller.ts
 import { Request, Response } from "express";
 import { Product } from "../models/Product";
+import { logger } from "../utils/logger";
+
 
 // Create product (admin only)
 export async function createProduct(req: Request, res: Response) {
