@@ -1,10 +1,47 @@
-// src/lib/redis.ts
-import IORedis from "ioredis";
+
+import express from "express";
+// import cors from "cors";
+const cors = require("cors");
+import helmet from "helmet";
 import dotenv from "dotenv";
+// import "express-async-errors";
+import { connectDB } from "./lib/db";
+import authRoutes from "./routes/auth.routes";
+import productRoutes from "./routes/product.routes";
+import { errorHandler } from "./middlewares/errorHandler";
+import { logger } from "./utils/logger";
+
+
 dotenv.config();
 
-export const redisConnection = new IORedis({
-  host: process.env.REDIS_HOST || "127.0.0.1",
-  port: Number(process.env.REDIS_PORT || 6379),
-  password: process.env.REDIS_PASSWORD || undefined,
+
+
+const app = express();
+app.use(helmet());
+app.use(cors());
+app.use(express.json())
+
+
+// routes
+app.use("/api/auth", authRoutes);
+app.use("/api/products", productRoutes);
+
+
+// error handler
+app.use(errorHandler)
+
+
+const PORT = Number(process.env.PORT || 4000);
+
+
+connectDB().then(() => {
+    app.listen(PORT, () => {
+        logger.info(`🚀 Server started on http://localhost:${PORT}`)
+    });
+});
+
+
+// unhandled promise rejection
+process.on("unhandledRejection", (reason, promise) => {
+  logger.error("Unhandled Rejection at", promise, "reason:", reason);
 });
