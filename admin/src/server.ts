@@ -5,12 +5,14 @@ const cors = require("cors");
 import helmet from "helmet";
 import dotenv from "dotenv";
 // import "express-async-errors";
-import { connectDB } from "./lib/db";
+// import { connectDB } from "./lib/db";
 import authRoutes from "./routes/auth.routes";
 import productRoutes from "./routes/product.routes";
 import { errorHandler } from "./middlewares/errorHandler";
 import { logger } from "./utils/logger";
-
+import { connectDB } from "./lib/db";
+import cartRoutes from "./routes/cartRoutes";
+import orderRoutes from "./routes/orderRoutes";
 
 dotenv.config();
 
@@ -25,6 +27,8 @@ app.use(express.json())
 // routes
 app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes);
+app.use("/api/cart", cartRoutes);
+app.use("api/order", orderRoutes);
 
 
 // error handler
