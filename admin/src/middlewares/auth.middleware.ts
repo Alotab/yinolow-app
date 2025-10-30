@@ -2,10 +2,11 @@ import { Request, Response, NextFunction } from "express"
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import { User } from "../models/User"
-dotenv.config();
+import { isAccessTokenBlacklisted } from "../controllers/auth.tokens";
+
 const logger = require("../utils/logger");
 
-
+dotenv.config();
 const JWt_SECRET = process.env.JWT_SECRET || "change_this";
 
 export interface AuthRequest extends Request {
@@ -20,7 +21,20 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
         const token = authHeader.split(" ")[1];
         if (!token) return res.status(401).json({ message: "Token missing "});
 
-        const payload = jwt.verify(token, JWt_SECRET) as { id: string; iat?: number; exp?: number};
+        // const payload = jwt.verify(token, JWt_SECRET) as { id: string; iat?: number; exp?: number};
+
+        let payload: any;
+        try {
+            payload = jwt.verify(token, JWt_SECRET);
+        } catch (err) {
+            return res.status(401).json({ message: "Invalid token" });
+        }
+
+        // check blacklist
+        if (payload.jti) {
+            const isBlacklisted = await isAccessTokenBlacklisted(payload.jti);
+            if (isBlacklisted) return res.status(401).json({ message: "Token revoked" });
+        }
 
         const user = await User.findById(payload.id).select("-password");
         if (!user) return res.status(401).json({ message: "User not found" });
