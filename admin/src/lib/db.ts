@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import dotenv from "dotenv";
-const logger = require("../utils/logger")
+import { logger } from "../utils/logger";
+// const logger = require("../utils/logger")
 dotenv.config();
 
 const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/reactmovie_admin";
