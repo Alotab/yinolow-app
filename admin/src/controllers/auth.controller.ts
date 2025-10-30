@@ -54,6 +54,54 @@ export async function login(req: Request, res: Response) {
 
 
 
+/** REFRESH — rotate refresh token */
+export async function refreshToken(req: Request, res: Response) {
+    logger.info("Refresh token endpoint hit...");
+    try {
+        const { refreshToken } = req.body;
+        if (!refreshToken) return res.status(400).json({ message: "refreshToken required"});
+
+        // verify signature
+        let payload;
+        try {
+            payload = verifyToken(refreshToken); // throws if invalid
+        } catch (err: any) {
+            return res.status(401).json({ 
+                message: "Invalid refresh token",
+                detail: err.message
+            });
+        }
+
+        const { id: userId, jti: oldRefreshJti } = payload;
+
+        // check redis whether this jti is valid (rotation)
+        const valid = await isRefreshTokenValid(oldRefreshJti);
+        if (!valid) {
+            return res.status(401).json({ message: "Refresh token revoked or already used"});
+        }
+
+        // rotate: revoke old refresh token
+        await revokeRefreshToken(oldRefreshJti);
+
+        // issue new tokens
+        const { token: accessToken, jti: accessJti } = signAccessToken(userId);
+        const { token: newRefreshToken, jti: newRefreshJti } = signRefreshToken(userId)
+
+        // store new refresh jti 
+        const newPayload = jwt.decode(newRefreshToken) as any;
+        const newTtl = newPayload && newPayload.exp && newPayload.iat ? newPayload.exp - newPayload.iat : 60 * 60 * 24 * 7;
+        await storeRefreshToken(newRefreshJti, userId, newTtl);
+
+        return res.json({ accessToken, refreshToken: newRefreshToken });
+
+    } catch (err) {
+        logger.error(err);
+        return res.status(500).json({ message: "Server error"});
+    }
+}
+
+
+
 /** LOGOUT — revoke refresh token and optionally blacklist access token */
 export async function logout(req: Request, res: Response) {
     try{
@@ -72,9 +120,9 @@ export async function logout(req: Request, res: Response) {
         // blacklist access token jti for emaining TTL (if provided)
         if (accessToken) {
             try {
-                 const payload = jwt.verify(accessToken, process.env.JWT_SECRET || "change_me") as any;
-            const { jti, exp, iat } = payload;
-            const ttl = exp && iat ? exp - iat : 0;
+                const payload = jwt.verify(accessToken, process.env.JWT_SECRET || "change_me") as any;
+                const { jti, exp, iat } = payload;
+                const ttl = exp && iat ? exp - iat : 0;
             if (ttl > 0) {
                 await blacklistAccessToken(jti, ttl);
                 }
