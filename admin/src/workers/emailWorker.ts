@@ -1,41 +1,37 @@
+
 import { Worker, Job } from "bullmq";
 import { redis } from "../lib/redis";
+import nodemailer from "nodemailer";
 import { ENV } from "../config/env";
-import nodemailer from "nodemailer"
-
-
 
 const transporter = nodemailer.createTransport({
   host: ENV.SMTP_HOST,
   port: ENV.SMTP_PORT,
-  auth: {
-    user: ENV.SMTP_USER,
-    pass: ENV.SMTP_PASS,
-  },
+  auth: { user: ENV.SMTP_USER, pass: ENV.SMTP_PASS },
 });
 
-export const emailWorker = new Worker(
+const worker = new Worker(
   "emailQueue",
   async (job: Job) => {
-    const { userId, email, name } = job.data as { userId: string; email: string; name?: string };
+    if (job.name === "orderConfirmation") {
+      const { orderId, email, success, reason } = job.data as any;
+      const subject = success ? `Order ${orderId} confirmed` : `Order ${orderId} failed`;
+      const html = success
+        ? `<p>Thank you! Your order ${orderId} is confirmed.</p>`
+        : `<p>We could not process your order ${orderId}: ${reason}</p>`;
 
-    if (job.name === "welcomeEmail") {
-      // build email content
-      const info = await transporter.sendMail({
+      await transporter.sendMail({
         from: ENV.SMTP_USER,
         to: email,
-        subject: "Welcome!",
-        text: `Hello ${name || ""}, welcome!`,
-        html: `<p>Hello ${name || ""}, welcome!</p>`,
+        subject,
+        html,
       });
-      console.log(`✉️ Sent welcome email to ${email} (msgId=${info.messageId})`);
+
+      console.log(`✉️ Sent order email to ${email} (order ${orderId})`);
     }
   },
-  {
-    connection: redis,
-    concurrency: ENV.WORKER_CONCURRENCY_EMAIL,
-  }
+  { connection: redis, concurrency: ENV.WORKER_CONCURRENCY_EMAIL }
 );
 
-emailWorker.on("completed", (job) => console.log(`✅ Email job completed ${job.id} (${job.name})`));
-emailWorker.on("failed", (job, err) => console.error(`❌ Email job failed ${job?.id}:`, err));
+worker.on("completed", (job) => console.log(`✅ Email job ${job.id} done`));
+worker.on("failed", (job, err) => console.error(`❌ Email job failed:`, err));
