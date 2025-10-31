@@ -7,7 +7,7 @@ export const addItem = async (req: Request, res: Response) => {
     try {
         const userId = req.user.id;  // from auth middleware
         const item = req.body;
-        const cart = await CartService.addToart(userId, item);
+        const cart = await CartService.addToCart(userId, item);
         res.status(200).json({ success: true, cart });
     } catch (err) {
         logger.error("Add to cart error:", err);
