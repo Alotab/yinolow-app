@@ -13,22 +13,38 @@ import { logger } from "./utils/logger";
 import { connectDB } from "./lib/db";
 import cartRoutes from "./routes/cartRoutes";
 import orderRoutes from "./routes/orderRoutes";
+import orderStatusRoutes from "./routes/order.routes";
+import { apiLimiter, loginLimiter, checkBlockedIP } from "./middlewares/rateLimiter";
 
 dotenv.config();
 
 
-
 const app = express();
+
+// Make sure Express uses real IPs behind proxies
+app.set("trust proxy", true);
+
+// Block any known bad IPs early
+app.use(checkBlockedIP);
+
+// Apply general API limiter to all routes
+app.use("/api", apiLimiter);
+
 app.use(helmet());
 app.use(cors());
 app.use(express.json())
 
+// Apply stricter rate limiter only to login/register endpoints
+app.use("/api/auth/login", loginLimiter);
+app.use("/api/auth/register", loginLimiter);
+app.use("/api/auth/forgot-password", loginLimiter);
 
 // routes
 app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/cart", cartRoutes);
-app.use("api/order", orderRoutes);
+app.use("/api/order", orderRoutes);
+
 
 
 // error handler
