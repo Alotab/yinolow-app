@@ -1,13 +1,18 @@
 import { emailQueue } from "../queues/emailQueue";
 
-export type WelcomeEmailPayload = { userId: string; email: string; name?: string };
+export type OrderEmailPayload = {
+  orderId: string;
+  userId: string;
+  email: string;
+  success: boolean;
+  reason?: string;
+};
 
-export async function enqueueWelcomeEmail(payload: WelcomeEmailPayload) {
-  return emailQueue.add("welcomeEmail", payload, {
-    attempts: 5,
-    backoff: { type: "exponential", delay: 1000 }, // retries: 1s, 2s, 4s...
-    removeOnComplete: { age: 60 * 60 }, // keep job result for 1h
-    removeOnFail: false,
+export async function enqueueOrderConfirmationEmail(payload: OrderEmailPayload) {
+  return emailQueue.add("orderConfirmation", payload, {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 2000 },
+    removeOnComplete: true,
     priority: 2,
   });
 }
