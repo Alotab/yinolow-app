@@ -15,7 +15,7 @@ export interface Cart {
     updateAt: number;
 }
 
-export async function addToart(userId: string, item: CartItem) {
+export async function addToCart(userId: string, item: CartItem) {
     const key = `${CART_PREFIX}${userId}`;
     const cache = await redis.get(key);
 
