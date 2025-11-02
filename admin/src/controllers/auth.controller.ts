@@ -5,12 +5,11 @@ import dotenv from "dotenv";
 import { User } from "../models/User";
 import { signAccessToken, signRefreshToken, verifyToken, signToken } from "../lib/jwt";
 import { storeRefreshToken, revokeRefreshToken, isRefreshTokenValid, blacklistAccessToken} from "./auth.tokens";
-import { redis } from "../lib/redis";
 import { logger } from "../utils/logger";
 import { mergeGuestWishlist } from "./wishlist.controller";
 
-
 dotenv.config();
+
 
 // Helpers 
 function secondUntilExpiry(tokenPayload: any) {
@@ -33,8 +32,8 @@ export async function login(req: Request, res: Response) {
     if (!valid) return res.status(401).json({ message: "Invalid credentials" });
 
     // ✅ Create tokens
-    const { token: accessToken, jti: accessJti } = signAccessToken(user._id.toString());
-    const { token: refreshToken, jti: refreshJti } = signRefreshToken(user._id.toString());
+    const { token: accessToken, jti: accessJti } = signAccessToken(user._id.toString(), user.email, user.role);
+    const { token: refreshToken, jti: refreshJti } = signRefreshToken(user._id.toString(), user.email, user.role);
 
     // ✅ Compute TTL for refresh token
     const payload = jwt.decode(refreshToken) as any;
