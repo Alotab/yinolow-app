@@ -1,9 +1,9 @@
 // src/workers/orderWorker.ts
 import { Worker, Job } from "bullmq";
-// import { connection } from "../lib/redis";
+import mongoose from "mongoose";
 import { Order } from "../models/Order";
 import { Product } from "../models/Product";
-import { verifyPaymentIntent } from "../services/payment.service"; // implement to fetch PI by id
+import { verifyPaymentIntent } from "../services/payment.service";
 import { generateTrackingCode } from "../utils/generateTrackingCode";
 import { enqueueOrderConfirmationEmail } from "../producers/emailProducer";
 import { redis } from "../lib/redis";
@@ -12,97 +12,122 @@ import { ENV } from "../config/env";
 const worker = new Worker(
   "orderQueue",
   async (job: Job) => {
-    const { orderId, paymentIntentId } = job.data as { orderId: string; paymentIntentId?: string };
+    const { orderId, paymentIntentId } = job.data as {
+      orderId: string;
+      paymentIntentId?: string;
+    };
 
+    console.log(`🔧 Processing order job: ${orderId}`);
+
+    // --- 1️⃣ Load the order
     const order = await Order.findById(orderId).exec();
     if (!order) throw new Error("Order not found");
+
+    // Idempotency check — if already processed, skip
     if (order.status === "paid") {
-      // idempotency: do nothing if already processed
+      console.log(`⚠️ Order ${orderId} already processed.`);
       return;
     }
 
-    // Defensive: verify payment intent with gateway
+    // --- 2️⃣ Verify payment with gateway (Stripe/Paystack etc.)
     if (paymentIntentId) {
       const pi = await verifyPaymentIntent(paymentIntentId);
       if (!pi || pi.status !== "succeeded") {
         order.status = "failed";
         order.paymentResult = { verified: pi?.status ?? "unknown", raw: pi };
         await order.save();
-        // notify user about failure
+
         await enqueueOrderConfirmationEmail({
           orderId: order._id.toString(),
           userId: order.userId,
           email: (order as any).userEmail || "",
           success: false,
-          reason: "Payment not completed",
+          reason: "Payment verification failed",
         });
+        console.log(`❌ Payment failed for order ${orderId}`);
         return;
       }
-      // store verification result
+
       order.paymentResult = { verified: pi.status, raw: pi };
       await order.save();
     }
 
-    // Validate stock and decrement
+    // --- 3️⃣ Validate stock before deduction
     for (const item of order.items) {
       const product = await Product.findById(item.productId).exec();
       if (!product) {
-        order.status = "failed";
-        await order.save();
-        await enqueueOrderConfirmationEmail({
-          orderId: order._id.toString(),
-          userId: order.userId,
-          email: (order as any).userEmail || "",
-          success: false,
-          reason: `Product ${item.productId} not found`,
-        });
+        await markOrderFailed(order, `Product ${item.productId} not found`);
         return;
       }
+
       if ((product.stock ?? 0) < item.quantity) {
-        order.status = "failed";
-        await order.save();
-        await enqueueOrderConfirmationEmail({
-          orderId: order._id.toString(),
-          userId: order.userId,
-          email: (order as any).userEmail || "",
-          success: false,
-          reason: "Insufficient stock",
-        });
+        await markOrderFailed(order, `Insufficient stock for ${product.name}`);
         return;
       }
     }
 
-    // Decrement stocks (non-transactional example; for production use DB transactions)
-    for (const item of order.items) {
-      await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -item.quantity } }).exec();
-    }
+    // --- 4️⃣ Begin MongoDB transaction
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-    // Generate unique tracking code
-    let trackingCode = generateTrackingCode();
-    // ensure unique (loop until unique)
-    while (await Order.exists({ trackingCode })) {
-      trackingCode = generateTrackingCode();
-    }
-
-    order.trackingCode = trackingCode;
-    order.status = "paid";
-    await order.save();
-
-    // Clear cart in redis (best effort)
     try {
-      await redis.del(`cart:user:${order.userId}`);
-    } catch (e) {
-      console.warn("Failed to clear user cart:", e);
-    }
+      // --- 5️⃣ Deduct stock atomically
+      for (const item of order.items) {
+        const updated = await Product.findOneAndUpdate(
+          { _id: item.productId, stock: { $gte: item.quantity } },
+          { $inc: { stock: -item.quantity } },
+          { session, new: true }
+        );
 
-    // Enqueue email (confirmation + tracking code)
-    await enqueueOrderConfirmationEmail({
-      orderId: order._id.toString(),
-      userId: order.userId,
-      email: (order as any).userEmail || "",
-      success: true,
-      reason: "",
-    });
+        if (!updated) {
+          throw new Error(`Stock deduction failed for product ${item.productId}`);
+        }
+
+        // Invalidate product caches (keep frontend in sync)
+        await redis.del(`product:${item.productId}`);
+      }
+
+      // --- 6️⃣ Generate unique tracking code
+      let trackingCode = generateTrackingCode();
+      while (await Order.exists({ trackingCode })) {
+        trackingCode = generateTrackingCode();
+      }
+
+      // --- 7️⃣ Update order info
+      order.trackingCode = trackingCode;
+      order.status = "paid";
+      await order.save({ session });
+
+      // Commit transaction
+      await session.commitTransaction();
+      console.log(`✅ Order ${orderId} processed successfully.`);
+
+      // Clear cart in Redis (best effort)
+      try {
+        await redis.del(`cart:user:${order.userId}`);
+      } catch (e) {
+        console.warn("⚠️ Failed to clear user cart:", e);
+      }
+
+      // Invalidate order-related cache
+      await redis.del(`order:status:${order.orderNumber}`);
+      await redis.del(`order:status:${order.trackingCode}`);
+
+      // Send success email
+      await enqueueOrderConfirmationEmail({
+        orderId: order._id.toString(),
+        userId: order.userId,
+        email: (order as any).userEmail || "",
+        success: true,
+        reason: "",
+      });
+    } catch (err) {
+      await session.abortTransaction();
+      console.error(`❌ Error processing order ${orderId}:`, err);
+      await markOrderFailed(order, err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      session.endSession();
+    }
   },
   {
     connection: redis,
@@ -110,8 +135,28 @@ const worker = new Worker(
   }
 );
 
-worker.on("completed", (job) => console.log(`Order job ${job.id} completed`));
-worker.on("failed", (job, err) => console.error(`Order job ${job?.id} failed:`, err));
+// --- 8️⃣ Helper: mark order as failed + notify user
+async function markOrderFailed(order: any, reason: string) {
+  order.status = "failed";
+  await order.save();
+
+  await enqueueOrderConfirmationEmail({
+    orderId: order._id.toString(),
+    userId: order.userId,
+    email: (order as any).userEmail || "",
+    success: false,
+    reason,
+  });
+
+  console.log(`❌ Order ${order._id} failed: ${reason}`);
+}
+
+worker.on("completed", (job) =>
+  console.log(`🎉 Order job ${job.id} completed successfully`)
+);
+worker.on("failed", (job, err) =>
+  console.error(`💥 Order job ${job?.id} failed:`, err)
+);
 
 
 
@@ -138,155 +183,126 @@ worker.on("failed", (job, err) => console.error(`Order job ${job?.id} failed:`, 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// import { Worker, Job, QueueEvents } from "bullmq";
-// import { redis } from "../lib/redis";
-
-// import { ENV } from "../config/env";
+// src/workers/orderWorker.ts
+// import { Worker, Job } from "bullmq";
 // import { Order } from "../models/Order";
 // import { Product } from "../models/Product";
-// import { chargeCard } from "../services/payment.service";
-// import { enqueueOrderConfirmationEmail } from "../producers/emailProducer";
+// import { verifyPaymentIntent } from "../services/payment.service"; // implement to fetch PI by id
 // import { generateTrackingCode } from "../utils/generateTrackingCode";
+// import { enqueueOrderConfirmationEmail } from "../producers/emailProducer";
+// import { redis } from "../lib/redis";
+// import { ENV } from "../config/env";
+// import mongoose from "mongoose";
+
 
 
 // const worker = new Worker(
 //   "orderQueue",
 //   async (job: Job) => {
-//     const { orderId, paymentMethodId } = job.data as { orderId: string; paymentMethodId?: string };
+//     const { orderId, paymentIntentId } = job.data as { orderId: string; paymentIntentId?: string };
 
-//     console.log(`🛠 [orderWorker] processing order ${orderId}`);
-
-//     // 1) load order
-//     const order = await Order.findById(orderId);
+//     const order = await Order.findById(orderId).exec();
 //     if (!order) throw new Error("Order not found");
-
 //     if (order.status === "paid") {
-//       console.log(`[orderWorker] order ${orderId} already paid`);
+//       // idempotency: do nothing if already processed
 //       return;
 //     }
 
-//     // 2) Validate stock (simple synchronous check, for production use transactions/locking)
-//     for (const item of order.items) {
-//       const product = await Product.findById(item.productId);
-//       if (!product) throw new Error(`Product ${item.productId} not found`);
-//       if ((product.stock ?? 0) < item.quantity) {
-//         // update order to failed due to stock
+//     // Defensive: verify payment intent with gateway
+//     if (paymentIntentId) {
+//       const pi = await verifyPaymentIntent(paymentIntentId);
+//       if (!pi || pi.status !== "succeeded") {
 //         order.status = "failed";
+//         order.paymentResult = { verified: pi?.status ?? "unknown", raw: pi };
 //         await order.save();
-//         // enqueue failure email
-//         await enqueueOrderConfirmationEmail({
-//           orderId: order._id.toString(),
-//           userId: order.userId,
-//           email: (order as any).userEmail || "", // if stored
-//           success: false,
-//           reason: "Insufficient stock",
-//         });
-//         throw new Error("Insufficient stock");
-//       }
-//     }
-
-//     // 3) Attempt payment (if paymentMethodId provided)
-//     try {
-//       const amountCents = Math.round(order.total * 100);
-//       if (!paymentMethodId) {
-//         // You may support alternative cash-on-delivery flows; here we'll mark failed
-//         throw new Error("No payment method provided");
-//       }
-//       const pi = await chargeCard({
-//         amountCents,
-//         paymentMethodId,
-//         currency: "usd",
-//         description: `Order ${order._id}`,
-//         metadata: { orderId: order._id.toString() },
-//       });
-
-//       if (pi.status !== "succeeded") {
-//         // Payment didn't succeed
-//         order.status = "failed";
-//         order.paymentResult = pi; // store raw response (careful with size)
-//         await order.save();
-
-//         // notify user
+//         // notify user about failure
 //         await enqueueOrderConfirmationEmail({
 //           orderId: order._id.toString(),
 //           userId: order.userId,
 //           email: (order as any).userEmail || "",
 //           success: false,
-//           reason: `Payment ${pi.status}`,
+//           reason: "Payment not completed",
 //         });
-
-//         throw new Error(`Payment status: ${pi.status}`);
+//         return;
 //       }
-
-//       // 4) Payment succeeded: update stock and order status (consider DB transaction)
-//       for (const item of order.items) {
-//         await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -item.quantity } });
-//       }
-
-//       // Generate and attach tracking code
-//       let trackingCode = generateTrackingCode();
-
-//       // Ensure uniqueness
-//       while (await Order.exists({ trackingCode })){
-//         trackingCode = generateTrackingCode();
-//       }
-
-//       order.trackingCode = trackingCode;
-//       order.status = "paid";
-//       order.paymentResult = { id: pi.id, status: pi.status };
+//       // store verification result
+//       order.paymentResult = { verified: pi.status, raw: pi };
 //       await order.save();
-
-//       // 5) Enqueue confirmation email
-//       await enqueueOrderConfirmationEmail({
-//         orderId: order._id.toString(),
-//         userId: order.userId,
-//         email: (order as any).userEmail || "",
-//         success: true,
-//         reason: "",
-//       });
-
-//       console.log(`✅ Order ${orderId} processed and paid`);
-//     } catch (err) {
-//       console.error(`[orderWorker] payment or processing error for ${orderId}`, err);
-//       // If exception thrown above, it will trigger retry according to job options
-//       throw err;
 //     }
+
+//     // Validate stock and decrement
+//     for (const item of order.items) {
+//       const product = await Product.findById(item.productId).exec();
+//       if (!product) {
+//         order.status = "failed";
+//         await order.save();
+//         await enqueueOrderConfirmationEmail({
+//           orderId: order._id.toString(),
+//           userId: order.userId,
+//           email: (order as any).userEmail || "",
+//           success: false,
+//           reason: `Product ${item.productId} not found`,
+//         });
+//         return;
+//       }
+//       if ((product.stock ?? 0) < item.quantity) {
+//         order.status = "failed";
+//         await order.save();
+//         await enqueueOrderConfirmationEmail({
+//           orderId: order._id.toString(),
+//           userId: order.userId,
+//           email: (order as any).userEmail || "",
+//           success: false,
+//           reason: "Insufficient stock",
+//         });
+//         return;
+//       }
+//     }
+
+//     const session = await mongoose.startSession();
+//     session.startTransaction();
+
+//     // Decrement stocks (non-transactional example; for production use DB transactions)
+//     for (const item of order.items) {
+//       await Product.findByIdAndUpdate(
+//         item.productId, 
+//         { $inc: { stock: -item.quantity } },
+//         { session }
+//       );
+//     }
+
+//     // Generate unique tracking code
+//     let trackingCode = generateTrackingCode();
+//     // ensure unique (loop until unique)
+//     while (await Order.exists({ trackingCode })) {
+//       trackingCode = generateTrackingCode();
+//     }
+
+//     order.trackingCode = trackingCode;
+//     order.status = "paid";
+//     await order.save({ session });
+
+//     // Clear cart in redis (best effort)
+//     try {
+//       await redis.del(`cart:user:${order.userId}`);
+//     } catch (e) {
+//       console.warn("Failed to clear user cart:", e);
+//     }
+
+//     // Enqueue email (confirmation + tracking code)
+//     await enqueueOrderConfirmationEmail({
+//       orderId: order._id.toString(),
+//       userId: order.userId,
+//       email: (order as any).userEmail || "",
+//       success: true,
+//       reason: "",
+//     });
 //   },
 //   {
 //     connection: redis,
-//     concurrency: ENV.WORKER_CONCURRENCY_ORDER,
+//     concurrency: ENV.WORKER_CONCURRENCY_ORDER || 3,
 //   }
 // );
 
-// worker.on("completed", (job) => console.log(`✅ Order job ${job.id} completed`));
-// worker.on("failed", (job, err) => console.error(`❌ Order job ${job?.id} failed:`, err));
+// worker.on("completed", (job) => console.log(`Order job ${job.id} completed`));
+// worker.on("failed", (job, err) => console.error(`Order job ${job?.id} failed:`, err));
