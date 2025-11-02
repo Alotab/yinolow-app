@@ -3,10 +3,10 @@ import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import { User } from "../models/User"
 import { isAccessTokenBlacklisted } from "../controllers/auth.tokens";
-
 const logger = require("../utils/logger");
 
 dotenv.config();
+
 const JWt_SECRET = process.env.JWT_SECRET || "change_this";
 
 export interface AuthRequest extends Request {
@@ -48,7 +48,6 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     }
 };
 
-
 export function requireRole(role: "admin" | "user") {
     return (req: AuthRequest, res: Response, next: NextFunction) =>{
         const user = req.user;
@@ -67,10 +66,3 @@ export function requireRole(role: "admin" | "user") {
         next();
     }
 };
-
-
-
-
-
-
-
