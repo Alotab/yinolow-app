@@ -4,15 +4,18 @@ import mongoose, { Schema, model, Document, Types } from "mongoose";
 
 export interface IProduct extends Document {
     seller?: String;
-    name: String;
+    name: string;
     description?: string;
     price: number;
+    currency?: string;
     sku?: string;
+    slug: string;
     images?: string[];
     stock?: number;
+    brand?: string;
     category?: String;
-    colors?: String[];
-    sizes?: String[];
+    colors?: string[];
+    sizes?: string[];
     tags?: string[];
     createdAt?: Date;
     updatedAt?: Date
@@ -29,12 +32,18 @@ const ProductSchema = new Schema<IProduct>({
         required: true,
         trim: true
     },
+    slug: { 
+        type: String, required: true, unique: true, lowercase: true 
+    },
     description: {
         type: String,
     },
     price: {
         type: Number,
         required: true
+    },
+    currency: { 
+        type: String, default: "GHS" 
     },
     sku: {
         type: String,
@@ -46,6 +55,9 @@ const ProductSchema = new Schema<IProduct>({
         type: Number,
         default: 0
     },
+    brand: { 
+        type: String
+    },
     category: {
         type: String
     },
@@ -56,6 +68,7 @@ const ProductSchema = new Schema<IProduct>({
 }, { timestamps: true});
 
 
-ProductSchema.index({ name: "text" })
+ProductSchema.index({ name: "text", description: "text" });
 
 export const Product = model<IProduct>("Product", ProductSchema);
+export default Product;
