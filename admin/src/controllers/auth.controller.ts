@@ -7,7 +7,7 @@ import { signAccessToken, signRefreshToken, verifyToken, signToken } from "../li
 import { storeRefreshToken, revokeRefreshToken, isRefreshTokenValid, blacklistAccessToken} from "./auth.tokens";
 import { redis } from "../lib/redis";
 import { logger } from "../utils/logger";
-
+import { mergeGuestWishlist } from "./wishlist.controller";
 
 
 dotenv.config();
@@ -18,40 +18,52 @@ function secondUntilExpiry(tokenPayload: any) {
     return tokenPayload.exp - tokenPayload.iat;
 };
 
-
 /** LOGIN — returns access + refresh tokens and stores refresh jti in Redis */
 export async function login(req: Request, res: Response) {
-    try {
-        const { email, password } = req.body;
-        if (!email || !password) return res.status(400).json({ message: "Missing fields"});
-
-        const user = await User.findOne({ email });
-        if (!user)  return res.status(401).json({ message: "Invalid credentials"});
-        const valid = await user.comparePassword(password);
-        if (!valid) return res.status(401).json({ message: "Inavliad credentials" });
-
-        // create tokens
-        const { token: accessToken, jti: accessJti } = signAccessToken(user._id.toString());
-        const  {token: refreshToken, jti: refreshJti } = signRefreshToken(user._id.toString());
-
-        // parse refresh token to compute TTL in seconds
-        const payload = jwt.decode(refreshToken) as any;
-        const ttlSeconds = payload && payload.exp && payload.iat ? payload.exp - payload.iat : 60 * 60 * 24 * 7;
-
-        // store refresh jti in redis
-        await storeRefreshToken(refreshJti, user._id.toString(), ttlSeconds);
-
-        return res.json({
-            user: { id: user._id, name: user.name, email: user.email, role: user.role},
-            accessToken,
-            refreshToken
-        });
-    }catch (err) {
-        logger.warn("Error");
-        return res.status(500).json({ message: "Server error"})
+  try {
+    const { email, password, guestId } = req.body; // 👈 include guestId from frontend
+    if (!email || !password) {
+      return res.status(400).json({ message: "Missing fields" });
     }
-}
 
+    const user = await User.findOne({ email });
+    if (!user) return res.status(401).json({ message: "Invalid credentials" });
+
+    const valid = await user.comparePassword(password);
+    if (!valid) return res.status(401).json({ message: "Invalid credentials" });
+
+    // ✅ Create tokens
+    const { token: accessToken, jti: accessJti } = signAccessToken(user._id.toString());
+    const { token: refreshToken, jti: refreshJti } = signRefreshToken(user._id.toString());
+
+    // ✅ Compute TTL for refresh token
+    const payload = jwt.decode(refreshToken) as any;
+    const ttlSeconds =
+      payload && payload.exp && payload.iat ? payload.exp - payload.iat : 60 * 60 * 24 * 7;
+
+    // ✅ Store refresh token JTI in Redis
+    await storeRefreshToken(refreshJti, user._id.toString(), ttlSeconds);
+
+    // 🪄 Merge guest wishlist into user’s account (if guestId provided)
+    if (guestId) {
+      try {
+        await mergeGuestWishlist(guestId, user._id.toString());
+      } catch (mergeErr) {
+        logger.warn(`Wishlist merge failed for guestId ${guestId}: ${mergeErr}`);
+      }
+    }
+
+    // ✅ Respond
+    return res.json({
+      user: { id: user._id, name: user.name, email: user.email, role: user.role },
+      accessToken,
+      refreshToken,
+    });
+  } catch (err) {
+    logger.error("Error during login", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+}
 
 
 /** REFRESH — rotate refresh token */
@@ -100,8 +112,6 @@ export async function refreshToken(req: Request, res: Response) {
     }
 }
 
-
-
 /** LOGOUT — revoke refresh token and optionally blacklist access token */
 export async function logout(req: Request, res: Response) {
     try{
@@ -136,7 +146,6 @@ export async function logout(req: Request, res: Response) {
     }
 }
 
-
 /** REGISTER  */
 export async function register(req: Request, res: Response) {
     try {
@@ -170,9 +179,45 @@ export async function register(req: Request, res: Response) {
     }
 }
 
-
 export async function me(req: Request & { user?: any }, res: Response) {
   const u = (req as any).user;
   if (!u) return res.status(401).json({ message: "Unauthorized" });
   res.json({ user: u });
 }
+
+
+
+
+
+/** LOGIN — returns access + refresh tokens and stores refresh jti in Redis */
+// export async function login(req: Request, res: Response) {
+//     try {
+//         const { email, password } = req.body;
+//         if (!email || !password) return res.status(400).json({ message: "Missing fields"});
+
+//         const user = await User.findOne({ email });
+//         if (!user)  return res.status(401).json({ message: "Invalid credentials"});
+//         const valid = await user.comparePassword(password);
+//         if (!valid) return res.status(401).json({ message: "Inavliad credentials" });
+
+//         // create tokens
+//         const { token: accessToken, jti: accessJti } = signAccessToken(user._id.toString());
+//         const  {token: refreshToken, jti: refreshJti } = signRefreshToken(user._id.toString());
+
+//         // parse refresh token to compute TTL in seconds
+//         const payload = jwt.decode(refreshToken) as any;
+//         const ttlSeconds = payload && payload.exp && payload.iat ? payload.exp - payload.iat : 60 * 60 * 24 * 7;
+
+//         // store refresh jti in redis
+//         await storeRefreshToken(refreshJti, user._id.toString(), ttlSeconds);
+
+//         return res.json({
+//             user: { id: user._id, name: user.name, email: user.email, role: user.role},
+//             accessToken,
+//             refreshToken
+//         });
+//     }catch (err) {
+//         logger.warn("Error");
+//         return res.status(500).json({ message: "Server error"})
+//     }
+// }
