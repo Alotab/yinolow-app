@@ -1,5 +1,7 @@
 // src/models/Order.ts
 import mongoose, { Schema, Document, Types } from "mongoose";
+import { ORDER_STATUSES, OrderStatus } from "../constants/orderStatus";
+
 
 export interface IOrderItem {
   productId: string;
@@ -7,7 +9,6 @@ export interface IOrderItem {
   price: number;
 }
 
-export type OrderStatus = "processing" | "paid" | "failed" | "cancelled";
 
 export interface IOrder extends Document {
   _id: Types.ObjectId;
@@ -38,8 +39,7 @@ const OrderSchema = new Schema<IOrder>(
     ],
     total: { type: Number, required: true },
     userEmail: { type: String },
-    status: { type: String, enum: ["processing", "paid", "failed", "cancelled"], default: "processing" },
-    paymentIntentId: { type: String },
+    status: { type: String, enum: ORDER_STATUSES, default: "processing" },  paymentIntentId: { type: String },
     paymentResult: { type: Schema.Types.Mixed },
     trackingCode: { type: String, unique: true, sparse: true },
     shipping: { type: Schema.Types.Mixed },
