@@ -1,6 +1,5 @@
 
 import express from "express";
-// import cors from "cors";
 const cors = require("cors");
 import helmet from "helmet";
 import dotenv from "dotenv";
@@ -12,10 +11,10 @@ import { logger } from "./utils/logger";
 import { connectDB } from "./lib/db";
 import cartRoutes from "./routes/cartRoutes";
 import orderRoutes from "./routes/orderRoutes";
-// import orderStatusRoutes from "./routes/order.routes";
 import { apiLimiter, loginLimiter, checkBlockedIP } from "./middlewares/rateLimiter";
 import orderStatusRoutes from "./routes/orderStatus.routes";
 import wishlistRoutes from "./routes/wishlist.routes";
+import adminRoutes from "./routes/admin.routes";
 
 dotenv.config();
 
@@ -47,16 +46,13 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/order", orderRoutes);
 app.use("/api/orders", orderStatusRoutes);
 
-app.use("/api/wishlist", wishlistRoutes);   
-
-
+app.use("/api/wishlist", wishlistRoutes);
+app.use("/api/admin", adminRoutes);
 
 // error handler
 app.use(errorHandler)
 
-
 const PORT = Number(process.env.PORT || 4000);
-
 
 connectDB().then(() => {
     app.listen(PORT, () => {
