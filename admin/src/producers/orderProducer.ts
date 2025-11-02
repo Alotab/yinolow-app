@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 // src/producers/orderProducer.ts
 import { orderQueue } from "../queues/orderQueue";
 
