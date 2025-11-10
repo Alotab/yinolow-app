@@ -4,6 +4,9 @@ import { Product } from "../models/Product";
 import { logger } from "../utils/logger";
 import { redis } from "../lib/redis";
 import slugify from "slugify";  
+import { mockProducts } from "../data/mockProducts";
+
+
 
 
 const PRODUCT_LIST_KEY = "products:all";   // store redis cache key under this name
@@ -32,6 +35,81 @@ export async function createProduct(req: Request, res: Response) {
 }
 
 // text search, filtering --> category, brand & price. Add pagination, sorting
+// export async function listProducts(req: Request, res: Response) {
+//   try {
+//     const {
+//       category,
+//       brand,
+//       minPrice,
+//       maxPrice,
+//       page = 1,
+//       limit = 20,
+//       sort,
+//       search,
+//     } = req.query;
+
+//     const cacheKey = `${PRODUCT_LIST_KEY}:${category || "all"}:${brand || "all"}:${minPrice || "0"}:${maxPrice || "max"}:${page}:${limit}:${sort || "default"}:${search || "none"}`;
+
+//     // 1️⃣ Try cache first
+//     const cache = await redis.get(cacheKey);
+//     if (cache) {
+//       logger.info(`Serving products from cache for ${cacheKey}`);
+//       return res.json(JSON.parse(cache));
+//     }
+
+
+
+//     // 2️⃣ Build filters
+//     const filter: any = {};
+
+//     if (category) filter.category = category;
+//     if (brand) filter.brand = brand;
+
+//     // ✅ Text search addition
+//     if (search) {
+//       filter.$text = { $search: search.toString() };
+//     }
+
+//     if (minPrice || maxPrice) {
+//       filter.price = {};
+//       if (minPrice) filter.price.$gte = Number(minPrice);
+//       if (maxPrice) filter.price.$lte = Number(maxPrice);
+//     }
+
+//     // 3️⃣ Pagination & sorting
+//     const skip = (Number(page) - 1) * Number(limit);
+//     const sortOption: any = {};
+//     if (sort === "price_asc") sortOption.price = 1;
+//     else if (sort === "price_desc") sortOption.price = -1;
+//     else sortOption.createdAt = -1;
+
+//     const products = await Product.find(filter)
+//       .sort(sortOption)
+//       .skip(skip)
+//       .limit(Number(limit))
+//       .lean();
+
+//     const total = await Product.countDocuments(filter);
+
+//     const response = {
+//       success: true,
+//       total,
+//       page: Number(page),
+//       limit: Number(limit),
+//       products,
+//     };
+
+//     // 4️⃣ Cache for 10 minutes
+//     await redis.set(cacheKey, JSON.stringify(response), "EX", 600);
+
+//     res.json(response);
+//   } catch (err) {
+//     logger.error("Error fetching products", err);
+//     res.status(500).json({ message: "Server error" });
+//   }
+// }
+
+
 export async function listProducts(req: Request, res: Response) {
   try {
     const {
@@ -45,64 +123,64 @@ export async function listProducts(req: Request, res: Response) {
       search,
     } = req.query;
 
-    const cacheKey = `${PRODUCT_LIST_KEY}:${category || "all"}:${brand || "all"}:${minPrice || "0"}:${maxPrice || "max"}:${page}:${limit}:${sort || "default"}:${search || "none"}`;
+    const cacheKey = `MOCK_PRODUCTS:${category || "all"}:${brand || "all"}:${page}:${limit}:${sort || "default"}:${search || "none"}`;
 
-    // 1️⃣ Try cache first
+    // Try cache
     const cache = await redis.get(cacheKey);
     if (cache) {
-      logger.info(`Serving products from cache for ${cacheKey}`);
       return res.json(JSON.parse(cache));
     }
 
-    // 2️⃣ Build filters
-    const filter: any = {};
+    // Filter logic on mock data
+    let products = [...mockProducts];
 
-    if (category) filter.category = category;
-    if (brand) filter.brand = brand;
+    if (category) products = products.filter(p => p.category === category);
+    if (brand) products = products.filter(p => p.brand === brand);
 
-    // ✅ Text search addition
     if (search) {
-      filter.$text = { $search: search.toString() };
+      const term = search.toString().toLowerCase();
+      products = products.filter(
+        p =>
+          p.name.toLowerCase().includes(term) ||
+          p.description.toLowerCase().includes(term)
+      );
     }
 
     if (minPrice || maxPrice) {
-      filter.price = {};
-      if (minPrice) filter.price.$gte = Number(minPrice);
-      if (maxPrice) filter.price.$lte = Number(maxPrice);
+      products = products.filter(p => {
+        const price = p.price;
+        if (minPrice && price < Number(minPrice)) return false;
+        if (maxPrice && price > Number(maxPrice)) return false;
+        return true;
+      });
     }
 
-    // 3️⃣ Pagination & sorting
-    const skip = (Number(page) - 1) * Number(limit);
-    const sortOption: any = {};
-    if (sort === "price_asc") sortOption.price = 1;
-    else if (sort === "price_desc") sortOption.price = -1;
-    else sortOption.createdAt = -1;
+    // Sorting
+    if (sort === "price_asc") products.sort((a, b) => a.price - b.price);
+    else if (sort === "price_desc") products.sort((a, b) => b.price - a.price);
+    else products.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-    const products = await Product.find(filter)
-      .sort(sortOption)
-      .skip(skip)
-      .limit(Number(limit))
-      .lean();
-
-    const total = await Product.countDocuments(filter);
+    // Pagination
+    const start = (Number(page) - 1) * Number(limit);
+    const paginated = products.slice(start, start + Number(limit));
 
     const response = {
       success: true,
-      total,
+      total: products.length,
       page: Number(page),
       limit: Number(limit),
-      products,
+      products: paginated,
     };
 
-    // 4️⃣ Cache for 10 minutes
     await redis.set(cacheKey, JSON.stringify(response), "EX", 600);
 
     res.json(response);
   } catch (err) {
-    logger.error("Error fetching products", err);
+    console.error("Error fetching mock products", err);
     res.status(500).json({ message: "Server error" });
   }
 }
+
 
 // search product using slug: /products/iphone-15-pro
 export async function getProductBySlug(req: Request, res: Response) {
