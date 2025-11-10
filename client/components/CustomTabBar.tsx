@@ -1,3 +1,5 @@
+// Complex logic — the smooth animation and the safe area handling
+
 import { 
   StyleSheet, 
   Text, 
@@ -36,7 +38,7 @@ const CustomTabBar = (props) => {
 
     // 2. Animate Position on Index Change
     useEffect(() => {
-        const targetX = state.index * TAB_WIDTH;
+        const targetX = state.index * TAB_WIDTH; // final position (in pixels) for the bar's container. If we are on index 2, the bar needs to move 2 * TAB_WIDTH pixels
         
         Animated.spring(translateXAnim, {
             toValue: targetX,
@@ -55,7 +57,7 @@ const CustomTabBar = (props) => {
     }), []);
 
     // 4. Bar Centering Calculation
-    // Centers the 30px bar within the calculated TAB_WIDTH space
+    // Centers the 30px bar within the calculated TAB_WIDTH space   // sits perfectly centered over the icon within
     const centerAdjustment = (TAB_WIDTH / 2) - (BAR_WIDTH / 2);
 
     return (
@@ -71,7 +73,7 @@ const CustomTabBar = (props) => {
                 style={[
                     styles.slidingBar,
                     { 
-                        backgroundColor: props.tabBarActiveTintColor || '#007AFF', 
+                        backgroundColor: props.tabBarActiveTintColor || '#1C274C', 
                         transform: [
                             { translateX: translateXAnim }, // Moves to the correct slot
                             { translateX: centerAdjustment }, // Centers within the slot
@@ -99,7 +101,7 @@ const CustomTabBar = (props) => {
                         : routeIconMap[route.name].unfocused;
                     
                     const color = isFocused 
-                        ? props.tabBarActiveTintColor || '#007AFF' 
+                        ? props.tabBarActiveTintColor || '#1C274C' 
                         : props.tabBarInactiveTintColor || '#8E8E93';
 
                     const onPress = () => {
@@ -123,7 +125,7 @@ const CustomTabBar = (props) => {
                             onPress={onPress}
                             style={styles.tabItem}
                         >
-                            <Ionicons name={iconName} size={24} color={color} />
+                            <Ionicons name={iconName} size={24} color={color}/>
                             <Text style={{ color: color, fontSize: 12, marginTop: 4 }}>
                                 {label}
                             </Text>
