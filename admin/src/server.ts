@@ -49,15 +49,30 @@ const httpServer = http.createServer(app);
 initSocket(httpServer);
 
 // 🔔 Subscribe to Redis *after* socket is initialized
-// redisSub.subscribe("order_updates", (message) => {
-//   const data = JSON.parse(message);
-//   const io = getIO();
+redisSub.subscribe("order_updates", (message) => {
+  try {
+    if (!message) {
+      logger.warn("Received empty message from Redis");
+      return;
+    }
 
-//   if (data.type === "ORDER_PAID") {
-//     io.to(`user:${data.userId}`).emit("order:paid", data);
-//     io.to("admins").emit("admin:orderUpdate", data);
-//   }
-// });
+    const data = JSON.parse(message);
+    if (!data || !data.type) {
+      logger.warn("Invalid order update message received:", data);
+      return;
+    }
+
+    const io = getIO();
+
+    if (data.type === "ORDER_PAID") {
+      io.to(`user:${data.userId}`).emit("order:paid", data);
+      io.to("admins").emit("admin:orderUpdate", data);
+    }
+  } catch (err) {
+    logger.error("Error processing Redis message:", err);
+  }
+});
+
 
 connectDB().then(() => {
   httpServer.listen(PORT, () => {
