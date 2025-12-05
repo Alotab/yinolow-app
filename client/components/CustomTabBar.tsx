@@ -73,7 +73,7 @@ const CustomTabBar = (props) => {
                 style={[
                     styles.slidingBar,
                     { 
-                        backgroundColor: props.tabBarActiveTintColor || '#1C274C', 
+                        backgroundColor: props.tabBarActiveTintColor || '#121111', 
                         transform: [
                             { translateX: translateXAnim }, // Moves to the correct slot
                             { translateX: centerAdjustment }, // Centers within the slot
@@ -101,8 +101,8 @@ const CustomTabBar = (props) => {
                         : routeIconMap[route.name].unfocused;
                     
                     const color = isFocused 
-                        ? props.tabBarActiveTintColor || '#1C274C' 
-                        : props.tabBarInactiveTintColor || '#8E8E93';
+                        ? props.tabBarActiveTintColor || '#121111' 
+                        : props.tabBarInactiveTintColor || '#555555';
 
                     const onPress = () => {
                         const event = navigation.emit({

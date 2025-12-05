@@ -1,16 +1,24 @@
-import { StyleSheet, Text, View } from 'react-native'
-import React from 'react'
+import "react-native-gesture-handler";
+import { StyleSheet, Text, View, Dimensions, Animated } from 'react-native'
+import React, { useState, useRef } from 'react'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import HomeScreen from '../Screens/HomeScreen'
+
+
 
 
 const index = () => {
+
   return (
-    <View>
-      <Text>indexss</Text>
-    </View>
+    <GestureHandlerRootView style={{ flex: 1}}>
+        <HomeScreen />
+    </GestureHandlerRootView>
   )
 }
 
-export default index
+export default index;
 
-const styles = StyleSheet.create({})
+const styles = StyleSheet.create({
+
+})

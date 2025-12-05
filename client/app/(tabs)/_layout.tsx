@@ -8,13 +8,9 @@ import CustomTabBar from '@/components/CustomTabBar';
 const _layout = () => {
   return (
     <Tabs
-        // CRITICAL: Use the custom component for the entire tab bar 1C274C
+        // CRITICAL: Use the custom component for the entire tab bar
         tabBar={(props) => <CustomTabBar {...props} />} 
-        screenOptions={{
-            tabBarActiveTintColor: '#1C274C',
-            // tabBarActiveTintColor: '#007AFF',
-            tabBarInactiveTintColor: '#8E8E93',
-        }}
+        screenOptions={{}}
     >
         <Tabs.Screen 
             name='index'

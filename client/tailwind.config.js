@@ -8,8 +8,8 @@ module.exports = {
       colors: {
         primary: '#121111',  // black  [name, headings, main text]
         secondary: { // Gray (inactive icons, desc)
-          100: '#A3A1A2',
-          200: '#A0A0A0'
+          100: '#555555', // icons and desc 
+          200: '#D9D9D9'
         },  
         light: '',
         dark:{
